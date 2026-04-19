@@ -1,0 +1,12 @@
+[project]
+name = "simplemcp-for-shuiyuanautoreply"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "ddgs>=9.14.0",
+    "mcp>=1.27.0",
+    "requests>=2.33.1",
+]

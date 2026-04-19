@@ -1,5 +1,7 @@
 from mcp.server.fastmcp import FastMCP
 from tools.system_time import get_system_time
+from tools.web_search import web_search
+from tools.read_webpage import read_webpage
 
 def create_mcp_server(host: str = "0.0.0.0", port: int = 58000) -> FastMCP:
     """
@@ -8,15 +10,18 @@ def create_mcp_server(host: str = "0.0.0.0", port: int = 58000) -> FastMCP:
     :param port: 绑定的端口号
     :return: 配置好的 FastMCP 实例
     """
-    mcp = FastMCP("SystemTimeServer", host=host, port=port)
+    mcp = FastMCP("AutoReplyToolServer", host=host, port=port)
 
     # =====================================================================
     # 注册工具 (Tool Registration)
-    # 将 functions 添加为大模块可以调用的接口
     # =====================================================================
+    # 注册系统时间工具
     mcp.tool()(get_system_time)
-
-    # 预留添加更多工具的位置...
-    # mcp.tool()(other_tool_function)
+    
+    # 注册网页搜索工具  
+    mcp.tool()(web_search)
+    
+    # 注册网页抓取阅读工具
+    mcp.tool()(read_webpage)
 
     return mcp

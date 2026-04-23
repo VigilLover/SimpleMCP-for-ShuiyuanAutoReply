@@ -1,7 +1,8 @@
 from mcp.server.fastmcp import FastMCP
 from tools.system_time import get_system_time
 from tools.web_search import web_search
-from tools.read_webpage import read_webpage
+# from tools.read_webpage import read_webpage
+from tools.official_fetch import official_fetch
 
 def create_mcp_server(host: str = "0.0.0.0", port: int = 58000) -> FastMCP:
     """
@@ -22,6 +23,9 @@ def create_mcp_server(host: str = "0.0.0.0", port: int = 58000) -> FastMCP:
     mcp.tool()(web_search)
     
     # 注册网页抓取阅读工具
-    mcp.tool()(read_webpage)
+    # mcp.tool()(read_webpage)
+
+    # 注册官方代理 fetch 工具
+    mcp.tool()(official_fetch)
 
     return mcp

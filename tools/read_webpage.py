@@ -10,6 +10,7 @@ def read_webpage(url: str) -> str:
     抓取并读取指定网页的纯文本内容。
     当网页搜索结果(web_search)的摘要不够充分，需要进一步阅读网页全文时请传递URL请求此工具。
     :param url: 需要读取全文的网页的有效URL地址
+    已废弃，建议使用官方 fetch 工具 official_fetch 替代，提供更好的转换和截断控制。
     """
     try:
         # 添加常见的 User-Agent 防止被简单的反爬拦截

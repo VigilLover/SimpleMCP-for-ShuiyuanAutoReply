@@ -5,9 +5,10 @@
 ## 已集成工具
 
 1. **`get_system_time`**: 获取当前标准系统时间。
-2. **`web_search`**: 实时的互联网搜索，支持 DDG 搜索引擎。
-3. **`read_webpage`**: 基础网页纯文本读取与截断处理。
-4. **`official_fetch`**: 调用 Anthropic 官方的 `mcp-server-fetch` 作为内部代理模块，支持更加健壮的 Markdown 网页转换和切片功能。
+2. **`get_hardware_status`**: 以终端艺术风格展示当前电脑的 CPU、电量、GPU、内存状态与进度条。
+3. **`web_search`**: 实时的互联网搜索，支持 DDG 搜索引擎。
+4. **`read_webpage`**: 基础网页纯文本读取与截断处理。
+5. **`official_fetch`**: 调用 Anthropic 官方的 `mcp-server-fetch` 作为内部代理模块，支持更加健壮的 Markdown 网页转换和切片功能。
 
 ## 前置依赖
 

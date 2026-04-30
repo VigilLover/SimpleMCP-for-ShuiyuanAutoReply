@@ -272,7 +272,7 @@ def get_hardware_status() -> str:
     border_top = "╭" + "─" * (width - 2) + "╮"
     border_mid = "├" + "─" * (width - 2) + "┤"
     border_bottom = "╰" + "─" * (width - 2) + "╯"
-    title = "SIMPLEMCP HARDWARE TELEMETRY"
+    title = "HARDWARE TELEMETRY"
 
     cpu_usage_text = (
         f"{cpu_usage:>6.2f}%  {_progress_bar(cpu_usage)}  user {cpu['user_usage']:.2f}%  sys {cpu['sys_usage']:.2f}%  idle {cpu['idle_usage']:.2f}%"

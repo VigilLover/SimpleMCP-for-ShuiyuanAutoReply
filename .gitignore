@@ -1,7 +1,48 @@
-
-.idea/
-
-.venv/
-venv
+# ====== Python ======
 __pycache__/
 *.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ====== Virtual environment ======
+.venv/
+venv/
+env/
+
+# ====== Environment & secrets ======
+.env
+.env.*
+*.local
+
+# ====== IDE & editors ======
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ====== macOS ======
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ====== Logs ======
+*.log
+logs/
+
+# ====== Tool caches ======
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pytype/
+
+# ====== Claude Code ======
+.claude/
+
+# ====== Test artifacts ======
+htmlcov/
+.coverage
+coverage.xml

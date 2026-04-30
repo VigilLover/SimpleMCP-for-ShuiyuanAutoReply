@@ -22,10 +22,10 @@ def create_mcp_server(host: str = "0.0.0.0", port: int = 58000) -> FastMCP:
 
     # 注册硬件状态面板工具
     mcp.tool()(get_hardware_status)
-    
-    # 注册网页搜索工具  
+
+    # 注册网页搜索工具
     mcp.tool()(web_search)
-    
+
     # 注册网页抓取阅读工具
     # mcp.tool()(read_webpage)
 

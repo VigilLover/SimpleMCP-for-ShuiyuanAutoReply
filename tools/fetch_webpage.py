@@ -2,7 +2,7 @@ import asyncio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-async def official_fetch(
+async def fetch_webpage_content(
     url: str, 
     max_length: int = 5000, 
     start_index: int = 0, 

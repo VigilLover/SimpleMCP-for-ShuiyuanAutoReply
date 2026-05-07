@@ -6,16 +6,16 @@ import asyncio
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from tools.official_fetch import official_fetch
+from tools.fetch_webpage import fetch_webpage_content
 
 async def test_fetch():
     url = "https://www.weather.com.cn/weather/101020200.shtml"
     print(f"[*] 正在测试官方 fetch 工具，目标网址: {url} ...\n")
     print(f"[*] 首次运行可能会通过 uvx 下载环境，请耐心等待...\n")
     
-    result = await official_fetch(url, max_length=500)
+    result = await fetch_webpage_content(url, max_length=2000)
     
-    print("[*] 网页全文提取测试结果 (截取前500字符): \n")
+    print("[*] 网页全文提取测试结果 (截取前2000字符): \n")
     print(result)
 
 if __name__ == "__main__":

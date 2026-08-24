@@ -41,8 +41,10 @@ logs/
 
 # ====== Claude Code ======
 .claude/
+CLAUDE.md
 
 # ====== Test artifacts ======
 htmlcov/
 .coverage
 coverage.xml
+

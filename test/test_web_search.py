@@ -207,7 +207,12 @@ class SearchToolTests(unittest.IsolatedAsyncioTestCase):
         tool_names = {tool.name for tool in await server.list_tools()}
 
         self.assertTrue(
-            {"web_search", "image_search", "fetch_webpage_content"}.issubset(tool_names)
+            {
+                "web_search",
+                "image_search",
+                "fetch_webpage_content",
+                "get_chuangka_menu",
+            }.issubset(tool_names)
         )
         self.assertTrue(
             {"videos", "books", "extract", "extract_content"}.isdisjoint(tool_names)

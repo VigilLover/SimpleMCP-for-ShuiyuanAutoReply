@@ -9,15 +9,17 @@
 3. **`web_search`**: 基于 DDGS 的结构化网页与新闻搜索，支持地区、时间、分页和通用域名过滤。
 4. **`image_search`**: 通用图片搜索，返回来源网页、原图、缩略图和尺寸信息，不在服务端下载图片。
 5. **`read_webpage`**: 基础网页纯文本读取与截断处理（已弃用且未注册）。
-6. **`fetch_webpage_content`**: 调用锁定的 `mcp-server-fetch==2026.7.10` 与兼容的 `mcp==1.27.0`，支持 Markdown 转换和切片；调用前检查公网 URL、重定向和声明的响应大小。
+6. **`fetch_webpage_content`**: 直接、流式读取公网网页，支持正文清洗、JSON 查询、字段投影和无缺口分页。
+7. **`get_chuangka_menu`**: 获取交图／交环创咖当前完整菜单，或按 `ice_cream` 提取冰淇淋商品与口味，自动处理接口翻页和紧凑分页。
 
 ## 前置依赖
 
 本项目要求运行在 macOS/Linux 或支持的 Windows 环境，Python 版本 >= 3.11。
-若要完整支持 `fetch_webpage_content` 桥接代理工具，系统环境需提前全局安装 `uv` 命令行工具 (`pip install uv`，或推荐按官方说明安装：https://astral.sh/)。
-桥接工具会在后台通过 `uvx` 命令动态启动并托管目标官方 MCP 实例。
+网页抓取默认拒绝私网、回环、链路本地和保留地址，只允许 80/443 端口。实际 GET 和每次重定向都会重新验证，响应正文具有 5 MiB 的硬流式上限，不依赖 `Content-Length`。
 
-网页抓取默认拒绝私网、回环、链路本地和保留地址，只允许 80/443 端口。可通过 `FETCH_MAX_DOWNLOAD_BYTES` 调整声明响应大小的预检上限，默认 5 MiB。该限制依赖目标返回准确的 `Content-Length`，不是对分块响应的硬下载上限。
+`fetch_webpage_content` 默认使用 `mode="auto"`：HTML 提取主内容，JSON 优先选择最大的顶层数组，普通文本规范化空白。可传 `query` 只返回包含关键词的文本块或 JSON 项，配合 `json_path="dataList"` 和 `fields=["name", "price"]` 提取大型接口中的必要字段。返回值包含清洗后正文、总字符数、截断标志和下一偏移。
+
+`get_chuangka_menu(location="all", category="all")` 返回两家创咖的当前商品名、价格和简短卖点；`location` 可选 `zhutu` 或 `huanyuan`，`category="ice_cream"` 会识别雪底、筒甜、甜筒、圣代、阿芙佳朵和吐冰等没有直接写“冰淇淋”的商品。完整菜单过长时使用返回的 `next_start_index` 继续读取。
 
 ## 运行方式
 ```bash

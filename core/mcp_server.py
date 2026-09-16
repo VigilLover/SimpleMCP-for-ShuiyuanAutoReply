@@ -3,6 +3,7 @@ from tools.system_time import get_system_time
 from tools.web_search import image_search, web_search
 # from tools.read_webpage import read_webpage
 from tools.fetch_webpage import fetch_webpage_content
+from tools.chuangka_menu import get_chuangka_menu
 from tools.hardware_status import get_hardware_status
 
 import logging
@@ -65,5 +66,8 @@ def create_mcp_server(host: str = "0.0.0.0", port: int = 58000) -> FastMCP:
 
     # 注册网页抓取内容工具 (转换并返回 Markdown)
     mcp.tool()(_wrap_tool(fetch_webpage_content))
+
+    # 注册交图 / 交环创咖当前菜单工具
+    mcp.tool()(_wrap_tool(get_chuangka_menu))
 
     return mcp

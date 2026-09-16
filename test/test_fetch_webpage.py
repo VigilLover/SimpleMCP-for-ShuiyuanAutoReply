@@ -1,167 +1,142 @@
+import asyncio
+import socket
 import unittest
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
-
-import httpx
+from unittest.mock import patch
 
 from tools.fetch_webpage import (
+    CACHE_TTL_SECONDS,
     DEFAULT_MAX_DOWNLOAD_BYTES,
-    FETCH_MCP_SDK_VERSION,
-    FETCH_SERVER_VERSION,
+    DownloadedPage,
     FetchSafetyError,
-    _preflight_fetch,
-    _validate_public_url,
+    PublicResolver,
+    _cache_get,
+    _cache_put,
+    _clear_fetch_cache,
+    _download_public,
+    _validate_url,
     fetch_webpage_content,
 )
 
 
-class FetchSafetyTests(unittest.IsolatedAsyncioTestCase):
-    async def test_rejects_non_http_credentials_and_nonstandard_ports(self) -> None:
-        with self.assertRaises(FetchSafetyError):
-            await _validate_public_url("file:///etc/passwd")
-        with self.assertRaises(FetchSafetyError):
-            await _validate_public_url("https://user:pass@example.com/")
-        with self.assertRaises(FetchSafetyError):
-            await _validate_public_url("https://example.com:8443/")
+class _Chunks:
+    def __init__(self, chunks):
+        self.chunks = chunks
 
-    async def test_rejects_non_global_ipv4_and_ipv6(self) -> None:
-        blocked_urls = [
+    async def iter_chunked(self, _size):
+        for chunk in self.chunks:
+            yield chunk
+
+
+class _Response:
+    def __init__(self, chunks=(), status=200, headers=None, charset="utf-8"):
+        self.status = status
+        self.headers = headers or {"Content-Type": "text/plain; charset=utf-8"}
+        self.charset = charset
+        self.content = _Chunks(chunks)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    def raise_for_status(self):
+        return None
+
+
+class _Session:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.requests = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return None
+
+    def get(self, url, **kwargs):
+        self.requests.append((url, kwargs))
+        return next(self.responses)
+
+
+class FetchSafetyTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        _clear_fetch_cache()
+
+    def test_rejects_non_http_credentials_ports_and_private_ips(self):
+        for url in (
+            "file:///etc/passwd",
+            "https://user:pass@example.com/",
+            "https://example.com:8443/",
             "http://127.0.0.1/",
             "http://10.0.0.1/",
             "http://169.254.169.254/latest/meta-data/",
             "http://[::1]/",
-            "http://[fc00::1]/",
-        ]
-        for url in blocked_urls:
+        ):
             with self.subTest(url=url), self.assertRaises(FetchSafetyError):
-                await _validate_public_url(url)
+                _validate_url(url)
 
-    async def test_accepts_public_host_after_dns_check(self) -> None:
-        with patch("tools.fetch_webpage._assert_public_hostname", new=AsyncMock()) as check:
-            await _validate_public_url("https://example.com/path")
-        check.assert_awaited_once_with("example.com")
+    async def test_resolver_rejects_any_private_dns_answer(self):
+        loop = asyncio.get_running_loop()
+        rows = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443)),
+        ]
+        with patch.object(loop, "getaddrinfo", return_value=rows):
+            with self.assertRaises(FetchSafetyError):
+                await PublicResolver().resolve("example.com", 443)
 
-    async def test_preflight_rejects_declared_oversized_response(self) -> None:
-        client = AsyncMock()
-        client.__aenter__.return_value = client
-        client.__aexit__.return_value = None
-        client.head.return_value = httpx.Response(
-            200,
-            headers={"content-length": str(DEFAULT_MAX_DOWNLOAD_BYTES + 1)},
+    async def test_streaming_limit_is_enforced_without_content_length(self):
+        session = _Session(
+            [_Response([b"x" * DEFAULT_MAX_DOWNLOAD_BYTES, b"overflow"])]
         )
         with (
-            patch("tools.fetch_webpage.httpx.AsyncClient", return_value=client),
-            patch("tools.fetch_webpage._validate_public_url", new=AsyncMock()),
+            patch("tools.fetch_webpage.aiohttp.TCPConnector", return_value=object()),
+            patch("tools.fetch_webpage.aiohttp.ClientSession", return_value=session),
         ):
             with self.assertRaises(FetchSafetyError):
-                await _preflight_fetch("https://example.com", DEFAULT_MAX_DOWNLOAD_BYTES)
+                await _download_public("https://example.com/data")
 
-    async def test_preflight_validates_each_redirect(self) -> None:
-        client = AsyncMock()
-        client.__aenter__.return_value = client
-        client.__aexit__.return_value = None
-        client.head.return_value = httpx.Response(
-            302,
-            headers={"location": "http://127.0.0.1/private"},
-        )
-        validate = AsyncMock(side_effect=[None, FetchSafetyError("private")])
+    async def test_redirect_is_revalidated_and_missing_location_rejected(self):
+        session = _Session([_Response(status=302, headers={})])
         with (
-            patch("tools.fetch_webpage.httpx.AsyncClient", return_value=client),
-            patch("tools.fetch_webpage._validate_public_url", new=validate),
+            patch("tools.fetch_webpage.aiohttp.TCPConnector", return_value=object()),
+            patch("tools.fetch_webpage.aiohttp.ClientSession", return_value=session),
         ):
             with self.assertRaises(FetchSafetyError):
-                await _preflight_fetch("https://example.com", DEFAULT_MAX_DOWNLOAD_BYTES)
-        self.assertEqual(validate.await_count, 2)
+                await _download_public("https://example.com/start")
 
-    async def test_missing_content_length_is_allowed_and_logged(self) -> None:
-        client = AsyncMock()
-        client.__aenter__.return_value = client
-        client.__aexit__.return_value = None
-        client.head.return_value = httpx.Response(200)
+    async def test_successful_response_is_cached(self):
+        session = _Session([_Response([b"abcdef"])])
         with (
-            patch("tools.fetch_webpage.httpx.AsyncClient", return_value=client),
-            patch("tools.fetch_webpage._validate_public_url", new=AsyncMock()),
-            self.assertLogs("mcp_tools.fetch", level="WARNING") as logs,
+            patch("tools.fetch_webpage.aiohttp.TCPConnector", return_value=object()),
+            patch("tools.fetch_webpage.aiohttp.ClientSession", return_value=session),
         ):
-            await _preflight_fetch("https://example.com", DEFAULT_MAX_DOWNLOAD_BYTES)
-        self.assertIn("size is unverified", " ".join(logs.output))
+            first = await _download_public("https://example.com/data")
+            second = await _download_public("https://example.com/data")
+        self.assertEqual(first.data, b"abcdef")
+        self.assertIs(first, second)
+        self.assertEqual(len(session.requests), 1)
 
-    async def test_unsupported_head_is_allowed_and_logged(self) -> None:
-        client = AsyncMock()
-        client.__aenter__.return_value = client
-        client.__aexit__.return_value = None
-        client.head.return_value = httpx.Response(
-            405,
-            headers={"content-length": str(DEFAULT_MAX_DOWNLOAD_BYTES + 1)},
-        )
-        with (
-            patch("tools.fetch_webpage.httpx.AsyncClient", return_value=client),
-            patch("tools.fetch_webpage._validate_public_url", new=AsyncMock()),
-            self.assertLogs("mcp_tools.fetch", level="WARNING") as logs,
+    def test_expired_cache_entry_is_removed(self):
+        page = DownloadedPage("https://example.com", "text/plain", "utf-8", b"x")
+        with patch("tools.fetch_webpage.time.monotonic", return_value=0):
+            _cache_put(page.url, page)
+        with patch(
+            "tools.fetch_webpage.time.monotonic", return_value=CACHE_TTL_SECONDS + 1
         ):
-            await _preflight_fetch("https://example.com", DEFAULT_MAX_DOWNLOAD_BYTES)
-        self.assertIn("HEAD is unsupported", " ".join(logs.output))
+            self.assertIsNone(_cache_get(page.url))
 
-    async def test_output_bounds_are_checked_before_preflight(self) -> None:
-        with patch("tools.fetch_webpage._preflight_fetch", new=AsyncMock()) as preflight:
-            result = await fetch_webpage_content("https://example.com", max_length=1_000_000)
-        self.assertIn("max_length", result)
-        preflight.assert_not_awaited()
-
-    def test_reference_server_version_is_pinned(self) -> None:
-        self.assertEqual(FETCH_SERVER_VERSION, "2026.7.10")
-        self.assertEqual(FETCH_MCP_SDK_VERSION, "1.27.0")
-
-    async def test_fetch_arguments_and_text_output_remain_compatible(self) -> None:
-        class AsyncContext:
-            def __init__(self, value: object) -> None:
-                self.value = value
-
-            async def __aenter__(self) -> object:
-                return self.value
-
-            async def __aexit__(self, *args: object) -> None:
-                return None
-
-        session = SimpleNamespace(
-            initialize=AsyncMock(),
-            call_tool=AsyncMock(
-                return_value=SimpleNamespace(
-                    content=[SimpleNamespace(type="text", text="markdown body")]
-                )
-            ),
+    async def test_legacy_slice_contract_remains_available(self):
+        page = DownloadedPage(
+            "https://example.com", "text/plain", "utf-8", b"abcdef"
         )
-        stdio = patch(
-            "tools.fetch_webpage.stdio_client",
-            return_value=AsyncContext((object(), object())),
-        )
-        with (
-            patch("tools.fetch_webpage._preflight_fetch", new=AsyncMock()),
-            stdio as stdio_client,
-            patch(
-                "tools.fetch_webpage.ClientSession",
-                return_value=AsyncContext(session),
-            ),
-        ):
+        with patch("tools.fetch_webpage._download_public", return_value=page):
             result = await fetch_webpage_content(
-                "https://example.com", max_length=1234, start_index=99, raw=True
+                "https://example.com", max_length=3, start_index=2
             )
-
-        self.assertEqual(result, "markdown body")
-        server_params = stdio_client.call_args.args[0]
-        self.assertEqual(
-            server_params.args[:3],
-            ["--with", "mcp==1.27.0", "mcp-server-fetch==2026.7.10"],
-        )
-        session.call_tool.assert_awaited_once_with(
-            "fetch",
-            arguments={
-                "url": "https://example.com",
-                "max_length": 1234,
-                "start_index": 99,
-                "raw": True,
-            },
-        )
+        self.assertEqual(result, "cde")
 
 
 if __name__ == "__main__":

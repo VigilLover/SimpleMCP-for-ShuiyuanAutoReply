@@ -18,20 +18,16 @@ def _product(
     product_id,
     name,
     price,
-    *,
-    selling_point="",
-    order_status=1,
-    category_ids=(),
 ):
     return {
         "productId": product_id,
         "name": name,
         "price": price,
-        "sellingPoint": selling_point,
+        "sellingPoint": "不应出现在输出中的商品描述",
         "status": 1,
         "wxStatus": 1,
-        "orderStatus": order_status,
-        "categoryList": [{"categoryId": category_id} for category_id in category_ids],
+        "orderStatus": 0,
+        "categoryList": [{"categoryId": 119}],
         "imgUrls": ["https://cdn.example.com/" + "x" * 1000],
         "skuList": [{"noise": "y" * 1000}],
     }
@@ -44,8 +40,8 @@ class ChuangKaMenuTests(unittest.IsolatedAsyncioTestCase):
                 "code": 0,
                 "total": 3,
                 "dataList": [
-                    _product(1, "香草·筒甜", 350, category_ids=(23, 119)),
-                    _product(2, "香草拿铁", 1200, selling_point="咖啡饮品"),
+                    _product(1, "香草·筒甜", 350),
+                    _product(2, "香草拿铁", 1200),
                 ],
             },
             (32677668, 2): {
@@ -57,8 +53,8 @@ class ChuangKaMenuTests(unittest.IsolatedAsyncioTestCase):
                 "code": 0,
                 "total": 2,
                 "dataList": [
-                    _product(4, "草莓味圣代", 250, selling_point="草莓冰淇淋"),
-                    _product(5, "暂停供应咖啡", 800, order_status=0),
+                    _product(4, "草莓味圣代", 250),
+                    _product(5, "暂停供应咖啡", 800),
                 ],
             },
         }
@@ -92,8 +88,10 @@ class ChuangKaMenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(download.await_count, 3)
         self.assertIn("香草·筒甜｜¥3.50", result["content"])
         self.assertIn("半熟芝士糕点（抹茶味）｜¥9.90", result["content"])
-        self.assertIn("暂停供应咖啡｜¥8.00｜当前不可下单", result["content"])
+        self.assertIn("暂停供应咖啡｜¥8.00", result["content"])
         self.assertNotIn("imgUrls", result["content"])
+        self.assertNotIn("商品描述", result["content"])
+        self.assertNotIn("当前不可下单", result["content"])
         self.assertFalse(result["truncated"])
 
     async def test_ice_cream_category_uses_semantic_markers_without_false_positives(
@@ -112,12 +110,12 @@ class ChuangKaMenuTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["matched_count"], 2)
         self.assertIn("香草·筒甜", result["content"])
         self.assertIn("草莓味圣代", result["content"])
-        self.assertIn("当前识别口味：香草", result["content"])
-        self.assertIn("当前识别口味：草莓", result["content"])
+        self.assertNotIn("当前识别口味", result["content"])
+        self.assertNotIn("抓取时间", result["content"])
         self.assertNotIn("香草拿铁", result["content"])
         self.assertNotIn("抹茶味", result["content"])
 
-    async def test_query_orderable_filter_and_location_are_applied(self):
+    async def test_query_and_location_are_applied_to_product_names(self):
         with (
             patch("tools.chuangka_menu.PAGE_LIMIT", 2),
             patch(
@@ -128,13 +126,13 @@ class ChuangKaMenuTests(unittest.IsolatedAsyncioTestCase):
             result = await get_chuangka_menu(
                 location="huanyuan",
                 query="咖啡",
-                orderable_only=True,
                 max_length=12_000,
             )
 
         self.assertEqual(result["total_products"], 2)
-        self.assertEqual(result["matched_count"], 0)
-        self.assertIn("没有匹配商品", result["content"])
+        self.assertEqual(result["matched_count"], 1)
+        self.assertIn("暂停供应咖啡｜¥8.00", result["content"])
+        self.assertNotIn("草莓味圣代", result["content"])
 
     async def test_cleaned_menu_pagination_has_no_gap_or_overlap(self):
         with (

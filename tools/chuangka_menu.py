@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
@@ -42,13 +41,6 @@ _ICE_CREAM_MARKERS = (
     "阿芙佳朵",
     "吐冰",
 )
-_FLAVOR_ALIASES = {
-    "香草": ("香草",),
-    "草莓": ("草莓",),
-    "抹茶": ("抹茶",),
-    "巧克力": ("巧克力",),
-    "茉莉乌龙": ("茉莉乌龙", "乌龙", "茉莉"),
-}
 
 
 def _build_url(aid: int, page: int) -> str:
@@ -71,32 +63,6 @@ def _ice_cream_prefix(name: str) -> str | None:
     return name[: min(positions)] if positions else None
 
 
-def _ice_cream_flavors(name: str) -> list[str]:
-    prefix = _ice_cream_prefix(name)
-    if prefix is None:
-        return []
-    searchable = prefix or name
-    return [
-        flavor
-        for flavor, aliases in _FLAVOR_ALIASES.items()
-        if any(alias in searchable for alias in aliases)
-    ]
-
-
-def _category_ids(value: Any) -> list[int]:
-    if not isinstance(value, list):
-        return []
-    result = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        try:
-            result.append(int(item["categoryId"]))
-        except (KeyError, TypeError, ValueError):
-            continue
-    return list(dict.fromkeys(result))
-
-
 def _integer(value: Any) -> int | None:
     try:
         return int(value)
@@ -107,9 +73,6 @@ def _integer(value: Any) -> int | None:
 def _compact_product(row: dict[str, Any], location: str) -> dict[str, Any]:
     name = str(row.get("name") or "").strip()
     price_cents = _integer(row.get("price"))
-    status_values = [row.get(key) for key in ("status", "wxStatus", "orderStatus")]
-    orderable_hint = all(value in (None, 1, True, "1") for value in status_values)
-    selling_point = re.sub(r"\s+", " ", str(row.get("sellingPoint") or "")).strip()
     return {
         "location": location,
         "product_id": _integer(row.get("productId") or row.get("id")),
@@ -120,13 +83,6 @@ def _compact_product(row: dict[str, Any], location: str) -> dict[str, Any]:
             if price_cents is not None
             else "价格未知"
         ),
-        "selling_point": selling_point[:300],
-        "category_ids": _category_ids(row.get("categoryList")),
-        "status": _integer(row.get("status")),
-        "wx_status": _integer(row.get("wxStatus")),
-        "order_status": _integer(row.get("orderStatus")),
-        "orderable_hint": orderable_hint,
-        "ice_cream_flavors": _ice_cream_flavors(name),
     }
 
 
@@ -192,33 +148,21 @@ def _render_menu(
     locations: list[str],
     category: str,
     query: str | None,
-    fetched_at: str,
 ) -> str:
     title = "创咖当前完整菜单" if category == "all" else "创咖当前冰淇淋菜单"
-    lines = [f"# {title}", f"抓取时间：{fetched_at}"]
+    lines = [f"# {title}"]
     if query:
         lines.append(f"关键词：{query}")
-    lines.append("价格来自商城当前商品列表；“当前不可下单”仅依据状态字段推断。")
     for location in locations:
         rows = [item for item in products if item["location"] == location]
         config = LOCATIONS[location]
         heading = f"## {config['label']}（{len(rows)} 项）"
-        if category == "ice_cream":
-            flavors = [
-                flavor
-                for flavor in _FLAVOR_ALIASES
-                if any(flavor in item["ice_cream_flavors"] for item in rows)
-            ]
-            heading += f"\n当前识别口味：{'、'.join(flavors) if flavors else '未识别'}"
         lines.append(heading)
         if not rows:
             lines.append("- 没有匹配商品")
             continue
         for item in rows:
-            availability = "" if item["orderable_hint"] else "｜当前不可下单"
-            lines.append(f"- {item['name']}｜{item['price']}{availability}")
-            if item["selling_point"]:
-                lines.append(f"  {item['selling_point']}")
+            lines.append(f"- {item['name']}｜{item['price']}")
     return "\n".join(lines)
 
 
@@ -226,7 +170,6 @@ async def get_chuangka_menu(
     location: Location = "all",
     category: str = "all",
     query: str | None = None,
-    orderable_only: bool = False,
     max_length: int = 6000,
     start_index: int = 0,
 ) -> dict[str, Any]:
@@ -274,15 +217,9 @@ async def get_chuangka_menu(
         products = [
             item for item in products if _ice_cream_prefix(item["name"]) is not None
         ]
-    if orderable_only:
-        products = [item for item in products if item["orderable_hint"]]
     if normalized_query:
         needle = normalized_query.casefold()
-        products = [
-            item
-            for item in products
-            if needle in f"{item['name']} {item['selling_point']}".casefold()
-        ]
+        products = [item for item in products if needle in item["name"].casefold()]
 
     fetched_at = datetime.now().astimezone().isoformat(timespec="seconds")
     content = _render_menu(
@@ -290,7 +227,6 @@ async def get_chuangka_menu(
         locations=selected_locations,
         category=normalized_category,
         query=normalized_query,
-        fetched_at=fetched_at,
     )
     if start_index > len(content):
         return _error("invalid_arguments", "start_index 超过清洗后菜单长度")
@@ -302,7 +238,6 @@ async def get_chuangka_menu(
         "location": location,
         "category": normalized_category,
         "query": normalized_query,
-        "orderable_only": orderable_only,
         "total_products": total_products,
         "total_by_location": total_by_location,
         "matched_count": len(products),

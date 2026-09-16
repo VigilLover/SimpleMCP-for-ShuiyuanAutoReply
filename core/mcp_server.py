@@ -1,13 +1,13 @@
 from mcp.server.fastmcp import FastMCP
 from tools.system_time import get_system_time
-from tools.web_search import web_search
+from tools.web_search import image_search, web_search
 # from tools.read_webpage import read_webpage
 from tools.fetch_webpage import fetch_webpage_content
 from tools.hardware_status import get_hardware_status
 
 import logging
 import functools
-import asyncio
+import inspect
 
 # 简单日志配置（若主程序已配置 logging，则不会重复添加 handler）
 logger = logging.getLogger("mcp_tools")
@@ -21,7 +21,7 @@ logger.setLevel(logging.INFO)
 
 def _wrap_tool(func):
     """返回一个包装过的工具函数，在调用时记录工具名和参数。支持同步和异步函数。"""
-    if asyncio.iscoroutinefunction(func):
+    if inspect.iscoroutinefunction(func):
         @functools.wraps(func)
         async def _async_wrapper(*args, **kwargs):
             logger.info("Tool called: %s, args=%s, kwargs=%s", func.__name__, args, kwargs)
@@ -56,6 +56,9 @@ def create_mcp_server(host: str = "0.0.0.0", port: int = 58000) -> FastMCP:
 
     # 注册网页搜索工具
     mcp.tool()(_wrap_tool(web_search))
+
+    # 注册图片搜索工具（仅返回图片 URL 与来源信息）
+    mcp.tool()(_wrap_tool(image_search))
 
     # 注册网页抓取阅读工具
     # mcp.tool()(read_webpage)

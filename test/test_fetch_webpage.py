@@ -1,4 +1,5 @@
 import asyncio
+import json
 import socket
 import unittest
 from unittest.mock import patch
@@ -128,15 +129,99 @@ class FetchSafetyTests(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertIsNone(_cache_get(page.url))
 
-    async def test_legacy_slice_contract_remains_available(self):
+    async def test_structured_slice_has_exact_continuation_metadata(self):
         page = DownloadedPage(
             "https://example.com", "text/plain", "utf-8", b"abcdef"
         )
         with patch("tools.fetch_webpage._download_public", return_value=page):
-            result = await fetch_webpage_content(
+            first = await fetch_webpage_content(
                 "https://example.com", max_length=3, start_index=2
             )
-        self.assertEqual(result, "cde")
+            second = await fetch_webpage_content(
+                "https://example.com",
+                max_length=3,
+                start_index=first["next_start_index"],
+            )
+        self.assertEqual(first["content"], "cde")
+        self.assertTrue(first["truncated"])
+        self.assertEqual(first["next_start_index"], 5)
+        self.assertEqual(second["content"], "f")
+        self.assertFalse(second["truncated"])
+
+    async def test_large_json_query_finds_late_item_and_projects_fields(self):
+        rows = [
+            {"name": f"普通商品{i}", "price": i, "imgUrls": ["x" * 2000]}
+            for i in range(180)
+        ]
+        rows.append(
+            {
+                "name": "海盐焦糖冰淇淋",
+                "price": 18,
+                "sellingPoint": "今日口味",
+                "imgUrls": ["y" * 2000],
+            }
+        )
+        body = json.dumps({"code": 0, "dataList": rows}, ensure_ascii=False).encode()
+        self.assertGreater(len(body), 300_000)
+        page = DownloadedPage(
+            "https://example.com/menu", "application/json", "utf-8", body
+        )
+        with patch("tools.fetch_webpage._download_public", return_value=page):
+            result = await fetch_webpage_content(
+                page.url,
+                query="冰淇淋",
+                json_path="dataList",
+                fields=["name", "price", "sellingPoint"],
+            )
+        payload = json.loads(result["content"])
+        self.assertEqual(result["mode"], "json")
+        self.assertEqual(result["matched_count"], 1)
+        self.assertEqual(
+            payload["items"],
+            [{"name": "海盐焦糖冰淇淋", "price": 18, "sellingPoint": "今日口味"}],
+        )
+        self.assertNotIn("imgUrls", result["content"])
+
+    async def test_auto_json_selects_largest_top_level_array(self):
+        page = DownloadedPage(
+            "https://example.com/data",
+            "application/json",
+            "utf-8",
+            json.dumps({"small": [1], "items": [{"name": "A"}, {"name": "B"}]}).encode(),
+        )
+        with patch("tools.fetch_webpage._download_public", return_value=page):
+            result = await fetch_webpage_content(page.url)
+        payload = json.loads(result["content"])
+        self.assertEqual(payload["path"], "items")
+        self.assertEqual(payload["total_items"], 2)
+
+    async def test_html_prefers_main_and_removes_navigation_noise(self):
+        html = (
+            "<html><body><nav>" + "噪声" * 20_000 + "</nav>"
+            "<main><h1>菜单</h1><p>香草冰淇淋</p><p>热拿铁</p>"
+            "<p hidden>隐藏属性噪声</p>"
+            "<p aria-hidden='true'>ARIA 噪声</p>"
+            "<p style='display: none'>样式噪声</p></main>"
+            "<footer>页脚噪声</footer></body></html>"
+        )
+        page = DownloadedPage(
+            "https://example.com/menu", "text/html; charset=utf-8", "utf-8", html.encode()
+        )
+        with patch("tools.fetch_webpage._download_public", return_value=page):
+            result = await fetch_webpage_content(page.url, query="冰淇淋")
+        self.assertIn("香草冰淇淋", result["content"])
+        self.assertIn("菜单", result["content"])
+        self.assertIn("热拿铁", result["content"])
+        self.assertNotIn("噪声", result["content"])
+
+    async def test_invalid_json_path_is_structured_error(self):
+        page = DownloadedPage(
+            "https://example.com/data", "application/json", "utf-8", b'{"items":[]}'
+        )
+        with patch("tools.fetch_webpage._download_public", return_value=page):
+            result = await fetch_webpage_content(page.url, json_path="missing")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["code"], "invalid_arguments")
 
 
 if __name__ == "__main__":

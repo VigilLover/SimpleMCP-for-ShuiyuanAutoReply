@@ -254,7 +254,7 @@ def _normalize_result(category: str, raw: dict[str, Any], include_preview_images
         "url": _canonicalize_url(str(raw.get("href") or raw.get("link") or "")),
         "snippet": str(raw.get("body") or raw.get("snippet") or ""),
         "source": str(raw.get("source") or ""),
-        "published_at": None,
+        "published_at": str(raw.get("date") or raw.get("published") or "") or None,
         "image_url": None,
         "thumbnail_url": None,
         "width": None,

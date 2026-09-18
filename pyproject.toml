@@ -1,13 +1,13 @@
 [project]
 name = "simplemcp-for-shuiyuanautoreply"
-version = "0.2.0"
-description = "Add your description here"
+version = "0.3.0"
+description = "Web search and bounded page reading tools for ShuiyuanAutoReply"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.13.3",
     "beautifulsoup4>=4.14.3",
-    "ddgs==9.15.0",
+    "ddgs==9.16.0",
     "httpx>=0.27.0",
     "mcp>=1.27.0",
     "requests>=2.33.1",

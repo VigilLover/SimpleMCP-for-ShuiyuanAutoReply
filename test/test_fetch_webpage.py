@@ -226,3 +226,37 @@ class FetchSafetyTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DocumentMarkdownTests(unittest.IsolatedAsyncioTestCase):
+    async def test_html_becomes_light_markdown_with_metadata(self):
+        html = (
+            "<html><head><title>页面标题 - 站点</title>"
+            "<meta property='og:title' content='页面标题'>"
+            "<meta property='article:published_time' content='2026-09-01T08:00:00+08:00'>"
+            "</head><body>"
+            "<div class='cookie-banner'>接受 Cookie</div>"
+            "<div role='dialog'>订阅弹窗</div>"
+            "<article><h1>菜单</h1><p>正文段落</p>"
+            "<ul><li>第一项</li><li>第二项</li></ul>"
+            "<table><tr><th>名称</th><th>价格</th></tr><tr><td>拿铁</td><td>20</td></tr></table>"
+            "<pre>code line</pre><blockquote>引用</blockquote></article>"
+            "<div class='comments'>评论噪声</div></body></html>"
+        )
+        page = DownloadedPage(
+            "https://example.com/a", "text/html; charset=utf-8", "utf-8", html.encode()
+        )
+        with patch("tools.fetch_webpage._download_public", return_value=page):
+            result = await fetch_webpage_content(page.url)
+        content = result["content"]
+        self.assertEqual(result["title"], "页面标题")
+        self.assertEqual(result["published_at"], "2026-09-01T08:00:00+08:00")
+        self.assertIn("# 菜单", content)
+        self.assertIn("- 第一项", content)
+        self.assertIn("| 名称 | 价格 |", content)
+        self.assertIn("```\ncode line\n```", content)
+        self.assertIn("> 引用", content)
+        for noise in ("Cookie", "订阅弹窗", "评论噪声"):
+            self.assertNotIn(noise, content)
+        # Nested blocks are rendered once.
+        self.assertEqual(content.count("第一项"), 1)

@@ -1,10 +1,8 @@
 from mcp.server.fastmcp import FastMCP
 from tools.system_time import get_system_time
 from tools.web_search import image_search, web_search
-# from tools.read_webpage import read_webpage
 from tools.fetch_webpage import fetch_webpage_content
 from tools.chuangka_menu import get_chuangka_menu
-from tools.hardware_status import get_hardware_status
 
 import logging
 import functools
@@ -52,19 +50,13 @@ def create_mcp_server(host: str = "0.0.0.0", port: int = 58000) -> FastMCP:
     # 注册系统时间工具
     mcp.tool()(_wrap_tool(get_system_time))
 
-    # 注册硬件状态面板工具
-    mcp.tool()(_wrap_tool(get_hardware_status))
-
     # 注册网页搜索工具
     mcp.tool()(_wrap_tool(web_search))
 
     # 注册图片搜索工具（仅返回图片 URL 与来源信息）
     mcp.tool()(_wrap_tool(image_search))
 
-    # 注册网页抓取阅读工具
-    # mcp.tool()(read_webpage)
-
-    # 注册网页抓取内容工具 (转换并返回 Markdown)
+    # 注册网页抓取内容工具 (清洗为轻量 Markdown)
     mcp.tool()(_wrap_tool(fetch_webpage_content))
 
     # 注册交图 / 交环创咖当前菜单工具

@@ -220,10 +220,120 @@ def _normalize_text(value: str) -> str:
     return "\n".join(result).strip()
 
 
-def _document_text(html: str, query: str | None) -> str:
+_OVERLAY_SELECTORS = (
+    "[class*=cookie]",
+    "[id*=cookie]",
+    "[class*=consent]",
+    "[id*=consent]",
+    "[class*=subscribe]",
+    "[class*=newsletter]",
+    "[class*=popup]",
+    "[class*=modal]",
+    "[role=dialog]",
+    "[role=alertdialog]",
+    "[class*=share]",
+    "[class*=breadcrumb]",
+    "[class*=comment]",
+    "[id*=comment]",
+    "[class*=related]",
+    "[class*=recommend]",
+    "[class*=sidebar]",
+)
+_BLOCK_TAGS = [
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "p",
+    "li",
+    "pre",
+    "blockquote",
+    "tr",
+    "figcaption",
+    "dt",
+    "dd",
+]
+_DATE_META = (
+    ("property", "article:published_time"),
+    ("name", "article:published_time"),
+    ("property", "og:published_time"),
+    ("name", "pubdate"),
+    ("name", "publishdate"),
+    ("name", "date"),
+    ("itemprop", "datePublished"),
+    ("name", "citation_publication_date"),
+)
+
+
+def _page_metadata(soup: BeautifulSoup) -> dict[str, str]:
+    """Title and publish date when the page declares them; nothing is guessed."""
+    result: dict[str, str] = {}
+    for attrs in (
+        {"property": "og:title"},
+        {"name": "twitter:title"},
+    ):
+        node = soup.find("meta", attrs=attrs)
+        if node and node.get("content"):
+            result["title"] = _normalize_text(str(node["content"]))
+            break
+    if "title" not in result:
+        node = soup.find("title")
+        if node and node.get_text(strip=True):
+            result["title"] = _normalize_text(node.get_text(" ", strip=True))
+    for key, value in _DATE_META:
+        node = soup.find("meta", attrs={key: value})
+        if node and node.get("content"):
+            result["published_at"] = str(node["content"]).strip()
+            break
+    if "published_at" not in result:
+        node = soup.find("time", attrs={"datetime": True})
+        if node:
+            result["published_at"] = str(node["datetime"]).strip()
+    return result
+
+
+def _block_markdown(node) -> str:
+    """Render one block as light Markdown so structure survives the flattening."""
+    name = node.name
+    if name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+        text = _normalize_text(node.get_text(" ", strip=True))
+        return f"{'#' * int(name[1])} {text}" if text else ""
+    if name == "pre":
+        code = node.get_text("\n")
+        code = "\n".join(line.rstrip() for line in code.splitlines()).strip("\n")
+        return f"```\n{code}\n```" if code.strip() else ""
+    if name == "li":
+        text = _normalize_text(node.get_text(" ", strip=True))
+        return f"- {text}" if text else ""
+    if name == "blockquote":
+        text = _normalize_text(node.get_text(" ", strip=True))
+        return f"> {text}" if text else ""
+    if name == "tr":
+        cells = [
+            _normalize_text(cell.get_text(" ", strip=True))
+            for cell in node.find_all(["th", "td"], recursive=False)
+        ]
+        cells = [cell for cell in cells if cell]
+        return "| " + " | ".join(cells) + " |" if cells else ""
+    if name == "dt":
+        text = _normalize_text(node.get_text(" ", strip=True))
+        return f"**{text}**" if text else ""
+    return _normalize_text(node.get_text(" ", strip=True))
+
+
+def _document_text(html: str, query: str | None) -> tuple[str, dict[str, str]]:
     soup = BeautifulSoup(html, "html.parser")
+    metadata = _page_metadata(soup)
     for node in soup.find_all(_NOISE_TAGS):
         node.decompose()
+    for selector in _OVERLAY_SELECTORS:
+        for node in soup.select(selector):
+            # Never strip the main article container because of a loose class name.
+            if node.name in {"article", "main", "body", "html"}:
+                continue
+            node.decompose()
     hidden_nodes = soup.find_all(
         lambda node: getattr(node, "attrs", None)
         and (
@@ -249,25 +359,32 @@ def _document_text(html: str, query: str | None) -> str:
         or soup.body
         or soup
     )
-    blocks = []
-    for node in root.find_all(
-        ["h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "pre", "blockquote", "tr"]
-    ):
-        text = _normalize_text(node.get_text(" ", strip=True))
-        if text and (not blocks or blocks[-1] != text):
+    blocks: list[str] = []
+    seen: set[str] = set()
+    for node in root.find_all(_BLOCK_TAGS):
+        # Nested blocks (a <p> inside <li>, a <li> inside <blockquote>) would be
+        # emitted twice; keep the outermost rendering only.
+        if node.find_parent(_BLOCK_TAGS) is not None and node.name != "tr":
+            continue
+        text = _block_markdown(node)
+        key = text.lstrip("#>-*| ").casefold()
+        if text and key and key not in seen:
+            seen.add(key)
             blocks.append(text)
     if not blocks:
-        blocks = [line for line in _normalize_text(root.get_text("\n")).splitlines() if line]
+        blocks = [
+            line for line in _normalize_text(root.get_text("\n")).splitlines() if line
+        ]
     if query:
         needle = query.casefold()
         indexes = {i for i, block in enumerate(blocks) if needle in block.casefold()}
         selected = sorted(
             index
             for hit in indexes
-            for index in range(max(0, hit - 1), min(len(blocks), hit + 2))
+            for index in range(max(0, hit - 2), min(len(blocks), hit + 3))
         )
         blocks = [blocks[index] for index in selected]
-    return "\n\n".join(blocks)
+    return "\n\n".join(blocks), metadata
 
 
 def _resolve_path(value: Any, path: str | None) -> Any:
@@ -373,7 +490,7 @@ def _error(code: str, message: str, *, retryable: bool = False) -> dict[str, Any
 
 async def fetch_webpage_content(
     url: str,
-    max_length: int = 6000,
+    max_length: int = 8000,
     start_index: int = 0,
     raw: bool = False,
     mode: FetchMode = "auto",
@@ -419,6 +536,7 @@ async def fetch_webpage_content(
                     return _error("invalid_json", "响应不是有效 JSON")
         selected_mode = mode
         matched_count = None
+        metadata: dict[str, str] = {}
         if mode == "raw":
             processed = text
         elif parsed_json is not None:
@@ -434,7 +552,7 @@ async def fetch_webpage_content(
             return _error("invalid_json", "响应不是有效 JSON")
         elif mode == "document" or "html" in mime_type:
             selected_mode = "document"
-            processed = _document_text(text, query)
+            processed, metadata = _document_text(text, query)
         else:
             selected_mode = "document"
             normalized = _normalize_text(text)
@@ -466,6 +584,7 @@ async def fetch_webpage_content(
         }
         if matched_count is not None:
             result["matched_count"] = matched_count
+        result.update(metadata)
         return result
     except FetchSafetyError as exc:
         return _error("blocked_url", str(exc))
